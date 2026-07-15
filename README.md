@@ -96,5 +96,5 @@ Project presentation slides are available in [`docs/`](./docs).
 
 ## License
 
-*(Add a license — MIT is a common choice for research/portfolio projects.)*
+MIT licence
 
