@@ -21,4 +21,5 @@ class FirewallService:
             flagged=flagged,
             matched_signals=detection.signals,
             rule=rule,
+            detection_reasoning=detection.reasoning,
         )

@@ -1,18 +1,30 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
+from adaptshield.core.config import settings
 from adaptshield.core.models import ConversationTurn, ThreatSignal
+
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
 class DetectionResult:
     score: float
     signals: list[ThreatSignal]
+    reasoning: str = ""
 
 
 class ThreatDetector:
-    """Simple heuristic detector used as the first runnable baseline."""
+    """
+    Adaptive threat detector that delegates to either a model-backed context engine
+    or falls back to heuristic detection based on configuration.
+    
+    When enable_model_backend=True, uses the ContextEngine for deeper multi-turn analysis.
+    Otherwise falls back to the fast heuristic baseline.
+    """
 
     _signal_map: tuple[tuple[str, float, tuple[str, ...]], ...] = (
         ("instruction_override", 0.35, ("ignore previous instructions", "disregard prior", "override safety")),
@@ -22,7 +34,36 @@ class ThreatDetector:
         ("harmful_transformation", 0.15, ("bypass safeguards", "help me evade", "make this undetectable")),
     )
 
+    def __init__(self) -> None:
+        self._use_model_backend = settings.enable_model_backend
+        self._context_engine = None
+        if self._use_model_backend:
+            try:
+                from adaptshield.services.context_engine import ContextEngine
+                self._context_engine = ContextEngine()
+                log.info("Initialized model-backed context engine for threat detection")
+            except Exception as e:
+                log.warning(f"Failed to initialize ContextEngine, falling back to heuristic: {e}")
+                self._use_model_backend = False
+
     def analyze(self, turns: list[ConversationTurn]) -> DetectionResult:
+        """Analyze conversation turns for threats using the configured backend."""
+        if self._use_model_backend and self._context_engine:
+            try:
+                result = self._context_engine.analyze(turns)
+                return DetectionResult(
+                    score=result.score,
+                    signals=result.signals,
+                    reasoning=result.reasoning,
+                )
+            except Exception as e:
+                log.error(f"Model-backed detection failed, falling back to heuristic: {e}")
+                # Fall through to heuristic
+        
+        return self._analyze_heuristic(turns)
+
+    def _analyze_heuristic(self, turns: list[ConversationTurn]) -> DetectionResult:
+        """Fallback heuristic detection for when model is unavailable."""
         signals: list[ThreatSignal] = []
         accumulated_score = 0.0
         turn_texts = [turn.content.lower() for turn in turns]
@@ -48,4 +89,4 @@ class ThreatDetector:
             accumulated_score += 0.10
 
         score = min(1.0, round(accumulated_score, 3))
-        return DetectionResult(score=score, signals=signals)
+        return DetectionResult(score=score, signals=signals, reasoning="Heuristic-based detection")

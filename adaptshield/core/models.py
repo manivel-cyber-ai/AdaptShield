@@ -39,6 +39,7 @@ class ConversationAssessment(BaseModel):
     flagged: bool
     matched_signals: list[ThreatSignal]
     rule: RuleDraft | None = None
+    detection_reasoning: str = ""
 
 
 class HealthResponse(BaseModel):
