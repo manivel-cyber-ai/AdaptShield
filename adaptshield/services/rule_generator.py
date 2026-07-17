@@ -10,12 +10,10 @@ class RuleGenerator:
         if not conditions:
             conditions = 'conversation_contains(signal="unknown")'
 
-        dsl = (
-            f'RULE: IF conversation_id="{conversation_id}" AND {conditions} '
-            'THEN block AND log AND retrain'
-        )
+        dsl = f"RULE: IF {conditions} THEN block AND log AND retrain"
         explanation = (
             "Automatically drafted from matched attack signals so the firewall can "
             "store a reusable defense for similar conversations."
         )
-        return RuleDraft(name=f"block_{conversation_id}", dsl=dsl, explanation=explanation)
+        rule_suffix = "_".join(signal_names) or "unknown"
+        return RuleDraft(name=f"block_{rule_suffix}", dsl=dsl, explanation=explanation)

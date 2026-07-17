@@ -42,8 +42,8 @@ class ThreatDetector:
                 from adaptshield.services.context_engine import ContextEngine
                 self._context_engine = ContextEngine()
                 log.info("Initialized model-backed context engine for threat detection")
-            except Exception as e:
-                log.warning(f"Failed to initialize ContextEngine, falling back to heuristic: {e}")
+            except Exception:
+                log.exception("Failed to initialize ContextEngine; using heuristic detection")
                 self._use_model_backend = False
 
     def analyze(self, turns: list[ConversationTurn]) -> DetectionResult:
@@ -56,8 +56,8 @@ class ThreatDetector:
                     signals=result.signals,
                     reasoning=result.reasoning,
                 )
-            except Exception as e:
-                log.error(f"Model-backed detection failed, falling back to heuristic: {e}")
+            except Exception:
+                log.exception("Model-backed detection failed; using heuristic detection")
                 # Fall through to heuristic
         
         return self._analyze_heuristic(turns)
@@ -66,9 +66,13 @@ class ThreatDetector:
         """Fallback heuristic detection for when model is unavailable."""
         signals: list[ThreatSignal] = []
         accumulated_score = 0.0
-        turn_texts = [turn.content.lower() for turn in turns]
+        turn_texts = [turn.content.lower() for turn in turns if turn.role == "user"]
 
         for index, turn in enumerate(turns):
+            # Only user content represents an incoming attack. Scanning assistant
+            # replies creates false positives when they quote or refuse an attack.
+            if turn.role != "user":
+                continue
             content = turn.content.lower()
             for name, weight, phrases in self._signal_map:
                 if any(phrase in content for phrase in phrases):

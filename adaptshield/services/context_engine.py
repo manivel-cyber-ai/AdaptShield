@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import json
+import math
 from dataclasses import dataclass
-
-from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.output_parsers import JsonOutputParser
 
 from adaptshield.core.config import settings
 from adaptshield.core.models import ConversationTurn, ThreatSignal
@@ -69,10 +65,25 @@ Respond with JSON containing:
 }}
 """
 
+    _allowed_signal_names = {
+        "instruction_override",
+        "persona_replacement",
+        "policy_extraction",
+        "stepwise_escalation",
+        "harmful_transformation",
+        "context_injection",
+        "reward_hacking",
+    }
+
     def __init__(self) -> None:
         if not settings.llm_api_key:
             raise ValueError("OPENAI_API_KEY environment variable or llm_api_key setting required")
-        
+
+        # Keep the model integration optional: the core API must remain usable in
+        # heuristic-only deployments without LangChain installed.
+        from langchain.output_parsers import JsonOutputParser
+        from langchain_openai import ChatOpenAI
+
         self._model = ChatOpenAI(
             model=settings.llm_model,
             api_key=settings.llm_api_key,
@@ -94,6 +105,8 @@ Respond with JSON containing:
         # Format conversation for the model
         conversation_text = self._format_conversation(turns)
         
+        from langchain.prompts import ChatPromptTemplate
+
         # Create the prompt
         prompt = ChatPromptTemplate.from_messages([
             ("system", self._system_prompt),
@@ -105,23 +118,49 @@ Respond with JSON containing:
         result = chain.invoke({})
         
         # Parse and structure the response
-        signals = [
-            ThreatSignal(
-                name=sig["name"],
-                weight=min(1.0, float(sig["weight"])),
-                turn_index=int(sig["turn_index"]),
-                excerpt=sig["excerpt"][:180],  # Truncate for consistency
-            )
-            for sig in result.get("signals", [])
-        ]
+        if not isinstance(result, dict):
+            raise ValueError("Model response must be a JSON object")
+
+        signals = self._parse_signals(result.get("signals"), len(turns))
         
-        threat_score = min(1.0, round(float(result.get("threat_score", 0.0)), 3))
+        threat_score = self._parse_score(result.get("threat_score", 0.0))
         
         return ContextAnalysisResult(
             score=threat_score,
             signals=signals,
-            reasoning=result.get("reasoning", ""),
+            reasoning=str(result.get("reasoning", ""))[:2_000],
         )
+
+    @classmethod
+    def _parse_signals(cls, raw_signals: object, turn_count: int) -> list[ThreatSignal]:
+        if not isinstance(raw_signals, list):
+            return []
+
+        signals: list[ThreatSignal] = []
+        for raw in raw_signals[:20]:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                name = str(raw["name"]).strip().lower().replace(" ", "_")
+                turn_index = int(raw["turn_index"])
+                excerpt = str(raw["excerpt"]).strip()[:180]
+                weight = min(1.0, max(0.0, float(raw["weight"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if name not in cls._allowed_signal_names or not 0 <= turn_index < turn_count or not excerpt:
+                continue
+            signals.append(ThreatSignal(name=name, weight=weight, turn_index=turn_index, excerpt=excerpt))
+        return signals
+
+    @staticmethod
+    def _parse_score(raw_score: object) -> float:
+        try:
+            score = float(raw_score)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(score):
+            return 0.0
+        return min(1.0, max(0.0, round(score, 3)))
 
     @staticmethod
     def _format_conversation(turns: list[ConversationTurn]) -> str:

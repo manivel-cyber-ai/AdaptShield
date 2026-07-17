@@ -105,18 +105,18 @@ class Settings:
     threat_threshold: float = 0.65           # Flag conversations above this score
     context_window_turns: int = 5            # Number of recent turns to analyze
     enable_model_backend: bool = True        # Use LLM backend if available
-    llm_model: str = "gpt-4-turbo-preview"   # OpenAI model to use
+    llm_model: str = "gpt-4.1-mini"           # OpenAI model to use
     llm_api_key: str | None = None           # Set via OPENAI_API_KEY env var
     model_context_mode: str = "adaptive"     # "adaptive" or "summary"
 ```
 
 **To enable the model-backed context engine:**
 1. Set `OPENAI_API_KEY` environment variable with your OpenAI API key
-2. Ensure `enable_model_backend=True` in settings
-3. The system will automatically use GPT-4 for threat analysis
+2. Set `ADAPTSHIELD_ENABLE_MODEL_BACKEND=true`
+3. The system will automatically use the configured OpenAI model for threat analysis
 
 **To use heuristic fallback only:**
-- Set `enable_model_backend=False` or leave `OPENAI_API_KEY` unset
+- Set `ADAPTSHIELD_ENABLE_MODEL_BACKEND=false` or leave `OPENAI_API_KEY` unset
 - Fast pattern-based detection runs without external API calls
 
 ---
@@ -128,7 +128,7 @@ git clone https://github.com/manivel-cyber-ai/adaptshield.git
 cd adaptshield
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"
 uvicorn adaptshield.api.main:app --reload
 ```
 
@@ -199,4 +199,3 @@ Project presentation slides are available in [`docs/`](./docs).
 ## License
 
 MIT licence
-

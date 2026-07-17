@@ -22,9 +22,9 @@ class ConversationInput(BaseModel):
 
 class ThreatSignal(BaseModel):
     name: str
-    weight: float
-    turn_index: int
-    excerpt: str
+    weight: float = Field(ge=0.0, le=1.0)
+    turn_index: int = Field(ge=0)
+    excerpt: str = Field(min_length=1, max_length=180)
 
 
 class RuleDraft(BaseModel):
@@ -35,7 +35,7 @@ class RuleDraft(BaseModel):
 
 class ConversationAssessment(BaseModel):
     conversation_id: str
-    threat_score: float
+    threat_score: float = Field(ge=0.0, le=1.0)
     flagged: bool
     matched_signals: list[ThreatSignal]
     rule: RuleDraft | None = None
