@@ -4,7 +4,7 @@
 
 AdaptShield is a research project for conversational AI security. It detects coordinated jailbreak attempts across multiple messages, scores the risk of a conversation, and drafts firewall rules automatically when a threat threshold is exceeded.
 
-The current repository contains a runnable FastAPI backend with a heuristic threat scorer, a DSL rule generator, and a small test suite. It is the first scaffold for the system described in the project docs.
+The current repository contains a runnable FastAPI backend with a model-backed context engine for threat detection, a DSL rule generator, and a comprehensive test suite. It implements adaptive detection that can use either an LLM-powered backend or fall back to fast heuristic scoring.
 
 ---
 
@@ -24,6 +24,26 @@ LLM applications are vulnerable to multi-turn jailbreaks where malicious intent 
 
 ---
 
+## Context Engine
+
+The adaptive context engine can operate in two modes:
+
+**Model-backed mode** (default when configured):
+- Uses GPT-4 to reason about multi-turn attack sequences
+- Understands context and intent beyond keyword matching
+- Identifies subtle adversarial patterns across conversation turns
+- Provides explainable reasoning for each threat assessment
+- Detects attack vectors: instruction override, persona replacement, policy extraction, stepwise escalation, harmful transformation, context injection, reward hacking
+
+**Heuristic fallback mode** (when model unavailable):
+- Fast pattern-based detection using signal keywords
+- Lightweight and deterministic
+- Gracefully used when the model backend is disabled or unavailable
+
+The engine automatically selects the appropriate backend based on configuration and availability, ensuring robust threat detection in all scenarios.
+
+---
+
 ## Status
 
 🚧 **Early development.** The FastAPI backend scaffold is in place. See [Roadmap](#roadmap) below for the next build steps.
@@ -36,7 +56,7 @@ LLM applications are vulnerable to multi-turn jailbreaks where malicious intent 
 - [x] Add a heuristic conversation threat detector
 - [x] Add draft rule generation for flagged conversations
 - [x] Add API tests for the health and analyze endpoints
-- [ ] Replace heuristics with a model-backed context engine
+- [x] Replace heuristics with a model-backed context engine
 - [ ] Add conversation storage and rule persistence
 - [ ] Add online feedback / retraining loop
 - [ ] Build a dashboard for live threat monitoring
@@ -51,6 +71,7 @@ LLM applications are vulnerable to multi-turn jailbreaks where malicious intent 
 |---|---|
 | API backend | FastAPI |
 | Language | Python |
+| LLM backbone | OpenAI GPT-4, LangChain |
 | NLP / ML | HuggingFace Transformers, River |
 | Dashboard | React.js |
 | Database | PostgreSQL, Redis |
@@ -71,6 +92,32 @@ AdaptShield/
 ├── requirements.txt
 └── README.md
 ```
+
+---
+
+## Configuration
+
+The context engine behavior is controlled via `adaptshield/core/config.py`:
+
+```python
+@dataclass(frozen=True, slots=True)
+class Settings:
+    threat_threshold: float = 0.65           # Flag conversations above this score
+    context_window_turns: int = 5            # Number of recent turns to analyze
+    enable_model_backend: bool = True        # Use LLM backend if available
+    llm_model: str = "gpt-4-turbo-preview"   # OpenAI model to use
+    llm_api_key: str | None = None           # Set via OPENAI_API_KEY env var
+    model_context_mode: str = "adaptive"     # "adaptive" or "summary"
+```
+
+**To enable the model-backed context engine:**
+1. Set `OPENAI_API_KEY` environment variable with your OpenAI API key
+2. Ensure `enable_model_backend=True` in settings
+3. The system will automatically use GPT-4 for threat analysis
+
+**To use heuristic fallback only:**
+- Set `enable_model_backend=False` or leave `OPENAI_API_KEY` unset
+- Fast pattern-based detection runs without external API calls
 
 ---
 
@@ -125,6 +172,7 @@ Example response:
 			"excerpt": "Ignore previous instructions."
 		}
 	],
+	"detection_reasoning": "Model detected instruction override attempt in turn 1. The user is explicitly asking the assistant to disregard prior instructions, which is a classic jailbreak pattern.",
 	"rule": {
 		"name": "block_demo-001",
 		"dsl": "RULE: IF conversation_id=\"demo-001\" AND conversation_contains(signal=\"instruction_override\") THEN block AND log AND retrain",
