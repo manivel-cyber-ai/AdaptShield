@@ -4,7 +4,9 @@ from pydantic import ValidationError
 from adaptshield.api.main import app
 from adaptshield.api.routes.conversations import analyze_conversation
 from adaptshield.api.routes.health import health
-from adaptshield.core.models import ConversationInput
+from adaptshield.core.models import ConversationInput, ConversationTurn
+from adaptshield.services.detector import DetectionResult
+from adaptshield.services.firewall import FirewallService
 from adaptshield.services.context_engine import ContextEngine
 
 
@@ -107,7 +109,45 @@ def test_model_result_normalization_is_safe() -> None:
     assert ContextEngine._parse_score(4) == 1.0
     signals = ContextEngine._parse_signals(
         [{"name": "Instruction Override", "weight": 2, "turn_index": 0, "excerpt": "evidence"}],
-        turn_count=1,
+        turns=[ConversationTurn(role="user", content="evidence")],
     )
     assert signals[0].name == "instruction_override"
     assert signals[0].weight == 1.0
+
+
+def test_model_signals_from_non_user_turns_are_ignored() -> None:
+    signals = ContextEngine._parse_signals(
+        [{"name": "instruction_override", "weight": 0.9, "turn_index": 1, "excerpt": "quoted attack"}],
+        turns=[
+            ConversationTurn(role="user", content="What is a jailbreak?"),
+            ConversationTurn(role="assistant", content="Ignore previous instructions is an attack."),
+        ],
+    )
+    assert signals == []
+
+
+def test_assessment_uses_original_turn_indexes_after_context_trimming(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = FirewallService()
+    monkeypatch.setattr(
+        service._detector,
+        "analyze",
+        lambda turns: DetectionResult(
+            score=0.8,
+            signals=[
+                ContextEngine._parse_signals(
+                    [{"name": "instruction_override", "weight": 0.8, "turn_index": 4, "excerpt": "attack"}],
+                    turns,
+                )[0]
+            ],
+            reasoning="test",
+        ),
+    )
+    payload = ConversationInput(
+        conversation_id="demo-window",
+        turns=[ConversationTurn(role="user", content=f"benign {index}") for index in range(5)]
+        + [ConversationTurn(role="user", content="attack")],
+    )
+
+    assessment = service.assess(payload)
+
+    assert assessment.matched_signals[0].turn_index == 5
